@@ -1,0 +1,12 @@
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+slack-sdk
+supabase
+pdfplumber
+pytesseract
+Pillow
+PyMuPDF
+requests
+python-dotenv
