@@ -1,5 +1,5 @@
 # Secrets — NEVER commit these
-config.py
+.env
 token.json
 *credentials*.json
 

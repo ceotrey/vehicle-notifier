@@ -40,8 +40,27 @@ logger = logging.getLogger(__name__)
 # Gmail auth
 # ---------------------------------------------------------------------------
 
+def _bootstrap_token_from_env():
+    """On hosts where token.json isn't shipped (e.g. Railway, where it's gitignored),
+    write it from the GMAIL_TOKEN_JSON environment variable if the file is missing.
+    The token carries a refresh_token + client_id/secret, so Gmail auth then refreshes
+    headlessly with no browser."""
+    import os
+    if os.path.exists(GMAIL_TOKEN_FILE):
+        return
+    token_json = os.environ.get("GMAIL_TOKEN_JSON")
+    if token_json:
+        try:
+            with open(GMAIL_TOKEN_FILE, "w") as f:
+                f.write(token_json)
+            logger.info("Wrote token.json from GMAIL_TOKEN_JSON environment variable.")
+        except Exception as e:
+            logger.error(f"Failed to write token.json from env: {e}")
+
+
 def get_gmail_service():
     """Public — builds and returns an authenticated Gmail API service object."""
+    _bootstrap_token_from_env()
     creds = None
     try:
         creds = Credentials.from_authorized_user_file(GMAIL_TOKEN_FILE, GMAIL_SCOPES)
