@@ -19,6 +19,7 @@ from config import WATCHLIST_POLL_INTERVAL
 import database
 import slack_notifier
 import vin_lookup
+import heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ def poll_assistant_commands():
         return
 
     logger.info("Vehicle assistant bot started.")
+    heartbeat.beat("vehicle-assistant")
 
     while True:
         try:
@@ -230,6 +232,7 @@ def poll_assistant_commands():
             with _lock:
                 if new_ts > _last_ts:
                     _last_ts = new_ts
+            heartbeat.beat("vehicle-assistant")
 
         except Exception as e:
             logger.error(f"Assistant poll error: {e}")

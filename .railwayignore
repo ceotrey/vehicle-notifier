@@ -1,0 +1,12 @@
+# Railway upload ignore list — used INSTEAD of .gitignore by `railway up`.
+# NOTE: config.py and token.json are intentionally NOT listed here — Railway
+# needs them at runtime (they are still kept out of git via .gitignore).
+__pycache__/
+*.pyc
+*.pyo
+errors.log
+*.log
+.git/
+.DS_Store
+.venv/
+venv/

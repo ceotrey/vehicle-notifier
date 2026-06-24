@@ -31,6 +31,7 @@ import pdf_extractor
 import vin_lookup
 import slack_notifier
 import watchlist_manager
+import heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +383,7 @@ def poll_gmail(service=None):
     """Main polling loop. Rebuilds the Gmail service on every poll to avoid
     stale HTTP connections (Broken pipe / Connection reset errors)."""
     logger.info("Gmail monitor started.")
+    heartbeat.beat("gmail-monitor")
 
     # In-memory set of email IDs currently being processed.
     # Prevents duplicate processing when poll cycles overlap (e.g. slow VIN lookups
@@ -430,6 +432,8 @@ def poll_gmail(service=None):
                     logger.error(f"Error processing email {msg_id}: {e}")
                 finally:
                     _in_flight.discard(msg_id)
+
+            heartbeat.beat("gmail-monitor")
 
         except Exception as e:
             logger.error(f"Gmail poll loop error: {e}")

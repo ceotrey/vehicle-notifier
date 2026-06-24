@@ -202,8 +202,11 @@ def get_dm_conversations() -> list[dict]:
     except SlackApiError as e:
         err = e.response.get("error", "unknown")
         if err == "ratelimited":
-            logger.warning("Slack rate limited on conversations.list — backing off 60s")
-            time.sleep(60)
+            # Honor Retry-After if present, but cap small so we never wedge the
+            # single DM thread — the normal poll interval will retry shortly.
+            retry_after = min(int(e.response.headers.get("Retry-After", 3) or 3), 5)
+            logger.warning(f"Slack rate limited on conversations.list — waiting {retry_after}s")
+            time.sleep(retry_after)
         else:
             logger.error(f"Slack API error listing DM conversations: {err}")
         return []
@@ -223,8 +226,9 @@ def get_dm_messages(channel_id: str, oldest_ts: str = None) -> list[dict]:
     except SlackApiError as e:
         err = e.response.get("error", "unknown")
         if err == "ratelimited":
-            logger.warning(f"Slack rate limited on DM {channel_id} — backing off 60s")
-            time.sleep(60)
+            retry_after = min(int(e.response.headers.get("Retry-After", 3) or 3), 5)
+            logger.warning(f"Slack rate limited on DM {channel_id} — waiting {retry_after}s")
+            time.sleep(retry_after)
         else:
             logger.error(f"Slack API error fetching DM messages from {channel_id}: {err}")
         return []

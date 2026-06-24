@@ -27,6 +27,7 @@ import database
 import vin_lookup
 import watchlist_manager
 import bot_assistant
+import heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +142,32 @@ def _process_dm_messages(messages: list, ts: str, dm_channel_id: str) -> str:
     return latest_ts
 
 
+_IM_LIST_REFRESH = 60  # seconds — how often to refresh the cached IM conversation list
+
+
 def poll_dm_commands():
     """Daemon thread — polls all DM conversations every DM_POLL_INTERVAL seconds.
-    This is the ONLY thread that reads DMs, eliminating double-polling."""
+    This is the ONLY thread that reads DMs, eliminating double-polling.
+    The IM list is cached and refreshed at most once per minute to keep Slack
+    API call volume well under the rate limit."""
     global _dm_ts
     logger.info("DM bot started.")
+    heartbeat.beat("dm-bot")  # register immediately so a booted thread is visible
+
+    cached_convos: list = []
+    last_list_refresh = 0.0
 
     while True:
         try:
-            convos = slack_notifier.get_dm_conversations()
-            for convo in convos:
+            # Refresh the IM list at most once per minute (cached otherwise)
+            now = time.time()
+            if now - last_list_refresh >= _IM_LIST_REFRESH or not cached_convos:
+                fresh = slack_notifier.get_dm_conversations()
+                if fresh:  # only replace cache on a successful (non-empty) fetch
+                    cached_convos = fresh
+                last_list_refresh = now
+
+            for convo in cached_convos:
                 dm_id = convo.get("id", "")
                 if not dm_id:
                     continue
@@ -162,6 +179,9 @@ def poll_dm_commands():
                 new_ts = _process_dm_messages(messages, oldest, dm_id)
                 with _lock:
                     _dm_ts[dm_id] = new_ts
+
+            # Report a healthy completed cycle
+            heartbeat.beat("dm-bot")
 
         except Exception as e:
             logger.error(f"DM bot poll error: {e}")

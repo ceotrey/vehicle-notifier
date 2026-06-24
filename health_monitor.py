@@ -12,12 +12,27 @@ from datetime import datetime
 
 import requests
 
+import heartbeat
 from config import (
     NHTSA_URL,
     HEALTH_CHECK_INTERVAL,
     HEALTH_CHECK_INTERVAL_ALERT,
     SLACK_CHANNEL_STATUS,
 )
+
+# Process start time — used to skip heartbeat checks during the boot window so
+# threads that haven't completed their first cycle don't trigger false alarms.
+_PROCESS_START = time.time()
+_HEARTBEAT_GRACE = 120  # seconds
+
+# How stale a thread's heartbeat may be before it's considered stalled.
+# Generous multiples of each loop's poll interval.
+_HEARTBEAT_LIMITS = {
+    "dm-bot": 60,
+    "watchlist-listener": 60,
+    "vehicle-assistant": 60,
+    "gmail-monitor": 180,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +49,10 @@ _status: dict = {
     "Toyota Window Sticker": True,
     "Gmail Thread": True,
     "Watchlist Thread": True,
+    "dm-bot heartbeat": True,
+    "watchlist-listener heartbeat": True,
+    "vehicle-assistant heartbeat": True,
+    "gmail-monitor heartbeat": True,
 }
 # Consecutive failure counts — alert only after 2 back-to-back failures so brief
 # network blips (VPN, WiFi handoff) don't flood #system-alerts.
@@ -116,6 +135,20 @@ def _check_thread(thread: threading.Thread) -> tuple:
     return False, f"Thread '{thread.name}' has stopped unexpectedly"
 
 
+def _check_heartbeat(name: str, limit: int) -> tuple:
+    """Detects a loop that is alive but stuck — no completed cycle within `limit` seconds.
+    Skipped during the startup grace window so booting threads don't false-alarm."""
+    if time.time() - _PROCESS_START < _HEARTBEAT_GRACE:
+        return True, ""  # still booting — give threads time to report
+    last = heartbeat.last_beat(name)
+    if last is None:
+        return False, f"{name} has never reported a heartbeat (thread may have failed to start)"
+    age = int(time.time() - last)
+    if age > limit:
+        return False, f"{name} stalled — no heartbeat for {age}s (limit {limit}s)"
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # Alert sending
 # ---------------------------------------------------------------------------
@@ -147,6 +180,10 @@ def run_health_checks(gmail_service, gmail_thread: threading.Thread, watchlist_t
         ("Toyota Window Sticker", _check_toyota_sticker),
         ("Gmail Thread",          lambda: _check_thread(gmail_thread)),
         ("Watchlist Thread",      lambda: _check_thread(watchlist_thread)),
+        ("dm-bot heartbeat",              lambda: _check_heartbeat("dm-bot", _HEARTBEAT_LIMITS["dm-bot"])),
+        ("watchlist-listener heartbeat",  lambda: _check_heartbeat("watchlist-listener", _HEARTBEAT_LIMITS["watchlist-listener"])),
+        ("vehicle-assistant heartbeat",   lambda: _check_heartbeat("vehicle-assistant", _HEARTBEAT_LIMITS["vehicle-assistant"])),
+        ("gmail-monitor heartbeat",       lambda: _check_heartbeat("gmail-monitor", _HEARTBEAT_LIMITS["gmail-monitor"])),
     ]
 
     any_down = False

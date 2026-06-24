@@ -7,6 +7,7 @@ from config import WATCHLIST_POLL_INTERVAL, VIN_PATTERN
 import database
 import slack_notifier
 import vin_lookup
+import heartbeat
 
 logger = logging.getLogger(__name__)
 # Start 10 minutes back so we catch any recent watch/unwatch messages sent
@@ -227,6 +228,7 @@ def poll_watchlist_commands():
     DM polling is handled exclusively by bot_dm.py to avoid double API calls."""
     global _last_ts
     logger.info("Watchlist command listener started.")
+    heartbeat.beat("watchlist-listener")
 
     while True:
         try:
@@ -238,6 +240,7 @@ def poll_watchlist_commands():
             with _lock:
                 if new_ts > _last_ts:
                     _last_ts = new_ts
+            heartbeat.beat("watchlist-listener")
 
         except Exception as e:
             logger.error(f"Watchlist poll error: {e}")
