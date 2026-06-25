@@ -12,7 +12,9 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
-_client = WebClient(token=SLACK_BOT_TOKEN)
+# Hard timeout so no Slack call can wedge a polling thread indefinitely on a
+# flaky network — a hung call raises after 15s, is caught, and the loop retries.
+_client = WebClient(token=SLACK_BOT_TOKEN, timeout=15)
 
 
 def _send(channel: str, text: str, retry: bool = True) -> bool:

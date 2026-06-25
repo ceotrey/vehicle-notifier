@@ -66,18 +66,42 @@ def main():
     print("Vehicle Notifier is running. Monitoring twomack@anderson-auto.net every 5 minutes.")
     logger.info("All threads started. Watchdog active — checking every 30 s. Press Ctrl+C to stop.")
 
-    # Watchdog loop — runs in the main thread forever.
-    # Detects dead threads, posts a Slack alert, and restarts them automatically.
+    # Heartbeat staleness limits (seconds) — a thread that is alive but hasn't
+    # completed a cycle within this window is considered hung and gets restarted.
+    # Generous multiples of each loop's poll interval.
+    import heartbeat
+    HEARTBEAT_RESTART_LIMITS = {
+        "dm-bot": 90,
+        "watchlist-listener": 90,
+        "vehicle-assistant": 90,
+        "gmail-monitor": 240,
+    }
+    startup_ts = time.time()
+    HEARTBEAT_GRACE = 120  # don't judge heartbeats during boot
+
+    # Watchdog loop — runs in the main thread forever. Detects threads that are
+    # either DEAD (crashed) or HUNG (alive but no heartbeat), alerts, and restarts.
     try:
         while True:
             time.sleep(WATCHDOG_INTERVAL)
+            booting = (time.time() - startup_ts) < HEARTBEAT_GRACE
             for name, (t, target, args) in list(threads.items()):
-                if not t.is_alive():
-                    logger.warning(f"[WATCHDOG] Thread '{name}' is dead — restarting…")
+                dead = not t.is_alive()
+
+                hung = False
+                limit = HEARTBEAT_RESTART_LIMITS.get(name)
+                if not dead and limit and not booting:
+                    last = heartbeat.last_beat(name)
+                    if last is not None and (time.time() - last) > limit:
+                        hung = True
+
+                if dead or hung:
+                    reason = "crashed" if dead else f"hung (no heartbeat for >{limit}s)"
+                    logger.warning(f"[WATCHDOG] Thread '{name}' {reason} — restarting…")
                     try:
                         slack_notifier.send_health_alert(
                             name,
-                            "Thread crashed and is being auto-restarted by the watchdog.",
+                            f"Thread {reason} and is being auto-restarted by the watchdog.",
                             recovered=False,
                         )
                     except Exception as alert_err:
@@ -86,6 +110,9 @@ def main():
                     new_t = threading.Thread(target=target, args=args, name=name, daemon=True)
                     new_t.start()
                     threads[name] = (new_t, target, args)
+                    # Seed a heartbeat so the freshly-restarted thread isn't immediately
+                    # re-flagged before its first cycle completes.
+                    heartbeat.beat(name)
                     logger.info(f"[WATCHDOG] Thread '{name}' restarted successfully.")
     except KeyboardInterrupt:
         logger.info("Vehicle Notifier stopped.")
